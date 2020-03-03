@@ -6,6 +6,7 @@ from models.dcgan import DCGAN_MODEL
 from models.wgan_clipping import WGAN_CP
 from models.wgan_gradient_penalty import WGAN_GP
 
+from torchvision import utils
 
 def main(args):
     model = None
@@ -16,7 +17,7 @@ def main(args):
     elif args.model == 'WGAN-CP':
         model = WGAN_CP(args)
     elif args.model == 'WGAN-GP':
-        model =  model = WGAN_GP(args)
+        model = WGAN_GP(args)
     else:
         print("Model type non-existing. Try again.")
         exit(-1)
@@ -24,11 +25,14 @@ def main(args):
     # Load datasets to train and test loaders
     train_loader, test_loader = get_data_loader(args)
     #feature_extraction = FeatureExtractionTest(train_loader, test_loader, args.cuda, args.batch_size)
-
     # Start model training
     if args.is_train == 'True':
         model.train(train_loader)
-
+    elif args.generalize:
+        print('doing generalization')
+#        model.optimizeZ(test_loader, args.load_D, args.load_G, args.test_emnist)
+        model.optimizeZ(train_loader, args.load_D, args.load_G, args.test_emnist)
+        
     # start evaluating on test data
     else:
         model.evaluate(test_loader, args.load_D, args.load_G)

@@ -6,6 +6,7 @@ import os.path
 import errno
 import torch
 import codecs
+import numpy as np
 
 # Code referenced from torch source code to add Fashion-MNSIT dataset to dataloder
 # Url: http://pytorch.org/docs/0.3.0/_modules/torchvision/datasets/mnist.html#FashionMNIST
@@ -35,13 +36,17 @@ class MNIST(data.Dataset):
     training_file = 'training.pt'
     test_file = 'test.pt'
 
-    def __init__(self, root, train=True, transform=None, target_transform=None, download=False):
+    def __init__(self, root, train=True, transform=None, target_transform=None, download=False, few_shot_class=None, test_emnist=True, max_test_sample=None):
         self.root = os.path.expanduser(root)
         self.transform = transform
         self.target_transform = target_transform
         self.train = train  # training set or test set
-
+        self.few_shot_class = few_shot_class
+        self.test_emnist = test_emnist
+        self.max_test_sample = max_test_sample
+        print("MNIST: will we ignore download")
         if download:
+            print("MNIST: trying to download")
             self.download()
 
         if not self._check_exists():
@@ -94,7 +99,9 @@ class MNIST(data.Dataset):
         from six.moves import urllib
         import gzip
 
+        print("download: trying to download")
         if self._check_exists():
+            print("download: already exists so exiting")
             return
 
         # download files
@@ -121,15 +128,67 @@ class MNIST(data.Dataset):
 
         # process and save as torch files
         print('Processing...')
-
+        train_label, train_non_few_shot_ids, train_few_shot_ids =  read_label_file(os.path.join(self.root, self.raw_folder, 'train-labels-idx1-ubyte'), self.few_shot_class)
+        train_img = read_image_file(os.path.join(self.root, self.raw_folder, 'train-images-idx3-ubyte'), non_few_shot_ids=train_non_few_shot_ids)
+        
         training_set = (
-            read_image_file(os.path.join(self.root, self.raw_folder, 'train-images-idx3-ubyte')),
-            read_label_file(os.path.join(self.root, self.raw_folder, 'train-labels-idx1-ubyte'))
+            train_img,
+            train_label
         )
-        test_set = (
-            read_image_file(os.path.join(self.root, self.raw_folder, 't10k-images-idx3-ubyte')),
-            read_label_file(os.path.join(self.root, self.raw_folder, 't10k-labels-idx1-ubyte'))
-        )
+        
+        test_label, test_non_few_shot_ids, test_few_shot_ids=  read_label_file(os.path.join(self.root, self.raw_folder, 't10k-labels-idx1-ubyte'), self.few_shot_class)
+        test_img = read_image_file(os.path.join(self.root, self.raw_folder, 't10k-images-idx3-ubyte'), few_shot_ids=test_few_shot_ids)
+        
+            
+        if self.test_emnist:
+           print("Download: Entering Emnist test")
+           from emnist import extract_test_samples
+           images, labels = extract_test_samples('letters')
+           print(images.shape)
+           print(labels.shape) 
+           #randomly grab a letter 
+           import random
+           rand_letter_idx = random.randint(0,25)
+           #idx for selected letter clas
+           test_sample_ids = np.where(labels < 10)[0]
+           np.random.seed(10)
+           np.random.shuffle(test_sample_ids)
+           
+           print('test_sample_ids_len' , len(test_sample_ids))
+           #grab labels and images from that class
+           labels = labels[test_sample_ids]
+           images = images[test_sample_ids]           
+           print("After selecting one class")
+           print(images.shape)
+           print(labels.shape)
+           #assert(self.few_shot_class not in labels)
+           if self.max_test_sample:
+             test_set = {
+                torch.ByteTensor(list(images[:self.max_test_sample])).view(-1,28,28),
+                torch.LongTensor(list(labels[:self.max_test_sample]))
+             }
+           else:
+             test_set = {
+                 torch.ByteTensor(list(images)).view(-1,28,28),
+                 torch.LongTensor(list(labels))
+              }  
+        else:
+        # test_label, test_non_few_shot_ids, test_few_shot_ids=  read_label_file(os.path.join(self.root, self.raw_folder, 't10k-labels-idx1-ubyte'), self.few_shot_class)
+        # test_img = read_image_file(os.path.join(self.root, self.raw_folder, 't10k-images-idx3-ubyte'), few_shot_ids=test_few_shot_ids)
+           if (self.max_test_sample):
+               print('testing max test sample')
+               test_set = (
+                    test_img[:self.max_test_sample],
+                    test_label[:self.max_test_sample]
+               )
+      
+           else:
+               test_set = (
+                    test_img,
+                    test_label
+               )  
+        print('confirming test size')
+        #print(len(test_set[0]), len(test_set[1]))         
         with open(os.path.join(self.root, self.processed_folder, self.training_file), 'wb') as f:
             torch.save(training_set, f)
         with open(os.path.join(self.root, self.processed_folder, self.test_file), 'wb') as f:
@@ -140,6 +199,8 @@ class MNIST(data.Dataset):
 
 class FashionMNIST(MNIST):
     """`Fashion-MNIST <https://github.com/zalandoresearch/fashion-mnist>`_ Dataset.
+           images = np.array(images)
+           images = np.array(images)
     Args:
         root (string): Root directory of dataset where ``processed/training.pt``
             and  ``processed/test.pt`` exist.
@@ -171,17 +232,26 @@ def parse_byte(b):
     return b
 
 
-def read_label_file(path):
+def read_label_file(path, few_shot_class):
     with open(path, 'rb') as f:
         data = f.read()
         assert get_int(data[:4]) == 2049
         length = get_int(data[4:8])
         labels = [parse_byte(b) for b in data[8:]]
         assert len(labels) == length
-        return torch.LongTensor(labels)
+        if few_shot_class:
+         labels = np.array(labels)
+         non_few_shot_ids = np.where(labels != few_shot_class)
+         few_shot_ids = np.where(labels == few_shot_class)
+         labels = labels[non_few_shot_ids]
+         assert(few_shot_class not in labels)
+         return torch.LongTensor(list(labels)), non_few_shot_ids , few_shot_ids 
 
+        else:  
+         #error where longtensor not working 
+         return torch.LongTensor(labels)
 
-def read_image_file(path):
+def read_image_file(path, non_few_shot_ids=None, few_shot_ids=None):
     with open(path, 'rb') as f:
         data = f.read()
         assert get_int(data[:4]) == 2051
@@ -199,5 +269,23 @@ def read_image_file(path):
                 for c in range(num_cols):
                     row.append(parse_byte(data[idx]))
                     idx += 1
-        assert len(images) == length
-        return torch.ByteTensor(images).view(-1, 28, 28)
+        if non_few_shot_ids:
+         print("Preparing training dataset")
+         images = np.array(images)
+         print(len(images))
+         images = images[non_few_shot_ids] 
+         print(len(images))
+         assert(len(images) == len(non_few_shot_ids[0])) 
+         return torch.ByteTensor(list(images)).view(-1, 28, 28)
+        elif few_shot_ids:
+         print("Preparring testing dataset")
+         print("read_image_file: getting testing dataset")
+         images = np.array(images)
+         print(len(images))
+         images = images[few_shot_ids]
+         print(len(images))
+         assert(len(images) == len(few_shot_ids[0])) 
+         return torch.ByteTensor(list(images)).view(-1, 28, 28) 
+        else:
+         assert len(images) == length
+         return torch.ByteTensor(images).view(-1,28,28)

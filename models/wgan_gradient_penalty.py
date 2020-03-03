@@ -92,6 +92,7 @@ class WGAN_GP(object):
         self.D = Discriminator(args.channels)
         self.C = args.channels
 
+       # args.cuda = False
         # Check if cuda is available
         self.check_cuda(args.cuda)
 
@@ -131,7 +132,9 @@ class WGAN_GP(object):
         # Now batches are callable self.data.next()
         self.data = self.get_infinite_batches(train_loader)
 
-        one = torch.FloatTensor([1])
+        #one = torch.FloatTensor([1])
+        #version incomp
+        one = torch.tensor(1.0)
         mone = one * -1
         if self.cuda:
             one = one.cuda(self.cuda_index)
@@ -181,7 +184,8 @@ class WGAN_GP(object):
 
                 # Train with gradient penalty
                 gradient_penalty = self.calculate_gradient_penalty(images.data, fake_images.data)
-                gradient_penalty.backward()
+                #changed gradient penalty arg to have retain_graph=True 
+                gradient_penalty.backward(retain_graph=True)
 
 
                 d_loss = d_loss_fake - d_loss_real + gradient_penalty
@@ -284,9 +288,74 @@ class WGAN_GP(object):
         samples = samples.mul(0.5).add(0.5)
         samples = samples.data.cpu()
         grid = utils.make_grid(samples)
-        print("Grid of 8x8 images saved to 'dgan_model_image.png'.")
-        utils.save_image(grid, 'dgan_model_image.png')
+        print("Grid of 8x8 images saved to 'wgan_gp_model_image.png'.")
+        utils.save_image(grid, 'wgan_gp_model_image.png')
+    
+    def optimizeZ(self, test_loader, D_model_path, G_model_path, test_emnist):
+       if (not test_emnist):
+           if not os.path.exists('gen_wgan_sample/'):
+               os.makedirs('gen_wgan_sample/')
+       else:
+           if not os.path.exists('gen_emnist_wgan_sample/'):
+               os.makedirs('gen_emnist_wgan_sample/')
+       self.load_model(D_model_path, G_model_path)
+       self.G.eval()
+       self.D.eval() 
+      # z = Variable(torch.randn(self.batch_size, 100, 1, 1)).cuda(self.cuda_index)
+       z = Variable(torch.randn(8, 100, 1, 1)).cuda(self.cuda_index)
+       z.requires_grad = True
+       print("Checking if z requires Gradient")
+       print(z.requires_grad)
+       learning_rate = 0.002
+       optimizer = torch.optim.Adam([z], lr=learning_rate)
+       opt_iter = 0     
+       
+       loss_fn = torch.nn.MSELoss()
+       print("self.epochs")
+       epochs = 1
+       print(epochs)
+       for epoch in range(epochs):
+          for i, (images, _) in enumerate(test_loader):
+             if self.cuda:
+                   images = Variable(images).cuda(self.cuda_index)
+             else:
+                   images = Variable(images)
+            
+             #generate image
+             x_recon = self.G(z)
+             
+             #calculate reconstruction loss 
+             loss = loss_fn(x_recon, images)  #test_loader andk get first img)
+              
+             #zero out gradient so that the previous calculated gradient doesn't add on to the current calculated grad
+             optimizer.zero_grad()
+              
+             #calculate gradient
+             loss.backward()
 
+             #update scale 
+             optimizer.step()
+             
+             if opt_iter % 100 == 0:
+                 print("Iter {}, loss {}".format(str(opt_iter), str(loss.item())))
+                 x_recon = x_recon.data.cpu()[:64]
+                 grid = utils.make_grid(x_recon)
+                  
+                 if opt_iter == 0:
+                     og = x_recon.to('cuda')
+                 if opt_iter == 1900:
+                     final = x_recon.to('cuda')
+                 if (not test_emnist):
+                     utils.save_image(grid, 'gen_wgan_sample/img_generator_iter_{}.png'.format(str(opt_iter).zfill(3)))
+                     utils.save_image(images, 'gen_wgan_sample/orig_generator_iter_{}.png'.format(str(opt_iter).zfill(3))) 
+                 else:
+                     utils.save_image(grid, 'gen_emnist_wgan_sample/img_generator_iter_{}.png'.format(str(opt_iter).zfill(3)))
+                     utils.save_image(images, 'gen_emnist_wgan_sample/orig_generator_iter_{}.png'.format(str(opt_iter).zfill(3)))
+             opt_iter += 1
+             if(opt_iter == 2000):
+                 break
+       comparison = torch.cat([images, og, final])
+       utils.save_image(comparison.cpu() , 'comparison_wgan.png', nrow=images.size(0) ) 
 
     def calculate_gradient_penalty(self, real_images, fake_images):
         eta = torch.FloatTensor(self.batch_size,1,1,1).uniform_(0,1)

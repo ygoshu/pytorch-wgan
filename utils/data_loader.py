@@ -9,11 +9,10 @@ def get_data_loader(args):
         trans = transforms.Compose([
             transforms.Scale(32),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            transforms.Normalize((0.1307,), (0.3081,)),
         ])
-        train_dataset = MNIST(root=args.dataroot, train=True, download=args.download, transform=trans)
-        test_dataset = MNIST(root=args.dataroot, train=False, download=args.download, transform=trans)
-
+        train_dataset = MNIST(root=args.dataroot, train=True, download=args.download, transform=trans, few_shot_class=args.few_shot_class, test_emnist=args.test_emnist, max_test_sample=args.max_test_sample)
+        test_dataset = MNIST(root=args.dataroot, train=False, download=args.download, transform=trans, few_shot_class=args.few_shot_class, test_emnist=args.test_emnist, max_test_sample=args.max_test_sample)
     elif args.dataset == 'fashion-mnist':
         trans = transforms.Compose([
             transforms.Scale(32),

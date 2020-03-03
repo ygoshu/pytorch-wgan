@@ -268,6 +268,57 @@ class DCGAN_MODEL(object):
         print("Grid of 8x8 images saved to 'dgan_model_image.png'.")
         utils.save_image(grid, 'dgan_model_image.png')
 
+    def optimizeZ(self, test_loader, D_model_path, G_model_path):
+        if not os.path.exists('gen_small_test_sample/'):
+            os.makedirs('gen_small_test_sample/')
+        self.load_model(D_model_path, G_model_path)
+        z = Variable(torch.randn(self.batch_size, 100, 1, 1)).cuda(self.cuda_index)
+        z.requires_grad = True
+        print("Checking if z requires Gradient")
+        print(z.requires_grad)
+        learning_rate = 0.002
+        optimizer = torch.optim.Adam([z], lr=learning_rate)
+        opt_iter = 0     
+        
+        loss_fn = torch.nn.MSELoss(reduction='elementwise_mean')
+        print("self.epochs")
+        print(self.epochs)
+        for epoch in range(self.epochs):
+            for i, (images, _) in enumerate(test_loader):
+              # Check if round number of batches
+              if i == test_loader.dataset.__len__() // self.batch_size:
+                    break        
+              if self.cuda:
+                    images = Variable(images).cuda(self.cuda_index)
+              else:
+                    images = Variable(images)
+             
+              #generate image
+              x_recon = self.G(z)
+              
+              #calculate reconstruction loss 
+              loss = loss_fn(x_recon, images)  #test_loader andk get first img)
+               
+              #zero out gradient so that the previous calculated gradient doesn't add on to the current calculated grad
+              optimizer.zero_grad()
+               
+              #calculate gradient
+              loss.backward()
+
+              #update scale 
+              optimizer.step()
+              
+              if opt_iter % 100 == 0:
+                  print("Iter {}, loss {}".format(str(opt_iter), str(loss.item())))
+                  print(x_recon.size())
+                  print(images.size())
+                  x_recon  = x_recon.mul(0.5).add(0.5)
+                  x_recon = x_recon.data.cpu()[:64]
+                  grid = utils.make_grid(x_recon)
+                  utils.save_image(grid, 'gen_small_test_sample/img_generator_iter_{}.png'.format(str(opt_iter).zfill(3)))
+                  grid_org = utils.make_grid(images) 
+                  utils.save_image(grid_org, 'gen_small_test_sample/orig_generator_iter_{}.png'.format(str(opt_iter).zfill(3))) 
+              opt_iter += 1
     def real_images(self, images, number_of_images):
         if (self.C == 3):
             return self.to_np(images.view(-1, self.C, 32, 32)[:self.number_of_images])

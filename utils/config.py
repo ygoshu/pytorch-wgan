@@ -12,11 +12,15 @@ def parse_args():
     parser.add_argument('--download', type=str, default='False')
     parser.add_argument('--epochs', type=int, default=50, help='The number of epochs to run')
     parser.add_argument('--batch_size', type=int, default=64, help='The size of batch')
-    parser.add_argument('--cuda',  type=str, default='False', help='Availability of cuda')
-
+    parser.add_argument('--cuda',  type=bool, default='False', help='Availability of cuda')
+    parser.add_argument('--few_shot_class', type=int, default=None, help='This is the few shot class to ignore')
+ 
     parser.add_argument('--load_D', type=str, default='False', help='Path for loading Discriminator network')
     parser.add_argument('--load_G', type=str, default='False', help='Path for loading Generator network')
     parser.add_argument('--generator_iters', type=int, default=10000, help='The number of iterations for generator in WGAN model.')
+    parser.add_argument('--generalize', type=bool, default=False, help='True when handling zero shot case')
+    parser.add_argument('--test_emnist', type=bool, default=False, help='True when testing against emnist dataset')  
+    parser.add_argument('--max_test_sample', type=int, default=None, help='Restrict max test samples')
     return check_args(parser.parse_args())
 
 # Checking arguments
